@@ -1,0 +1,120 @@
+# Workflow to provision resources in a GCP host project using Terraform
+name: Setup Expenv GCP Host Project
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+jobs:
+  deploy_to_dev:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    environment: dev
+    defaults:
+      run:
+        working-directory: ./terraform/
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Authenticate to Google_Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }} # Google Cloud token present in this Github repo secrets
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Display gcloud current project and account
+        run: |
+          gcloud config get-value project
+          gcloud config get-value account
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }} # Terraform Cloud token present in this Github repo secrets
+
+      - name: Terraform init
+        id: init
+        run: |
+          cp ./dev/backend.tf .
+          terraform init
+
+      - name: Terraform Format
+        id: fmt
+        run: terraform fmt
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Terraform plan
+        id: plan
+        run: terraform plan -no-color -out=tfplan.plan
+        continue-on-error: true
+
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+      - name: Terraform Apply
+        id: apply
+        run: terraform apply -auto-approve
+
+  deploy_to_prod:
+    needs: deploy_to_dev
+    runs-on: ubuntu-latest
+    environment: prod
+    defaults:
+      run:
+        working-directory: ./terraform/
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Authenticate to Google_Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }} # Google Cloud token present in this Github repo secrets
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }} # Terraform Cloud token present in this Github repo secrets
+
+      - name: Terraform init
+        id: init
+        run: |
+          cp ./prod/backend.tf .
+          terraform init
+
+      - name: Terraform Format
+        id: fmt
+        run: terraform fmt
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Terraform plan
+        id: plan
+        run: terraform plan -var-file="./prod/prod.tfvars" -no-color -out=tfplan.plan
+        continue-on-error: true
+
+      - name: Terraform Plan Status
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+      - name: Terraform Apply
+        id: apply
+        run: terraform apply -var-file="./prod/prod.tfvars" -auto-approve
