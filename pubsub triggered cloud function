@@ -1,0 +1,37 @@
+data "archive_file" "source" {
+  type        = "zip"
+  source_dir  = "${path.module}/../../../functions/${var.function_source_code}"
+  output_path = "./tmp/${var.function_source_code}.zip"
+}
+
+# Upload the sample source code to the google cloud storage bucket
+resource "google_storage_bucket_object" "src_code" {
+  name   = "src-${var.function_source_code}-${data.archive_file.source.output_md5}.zip"
+  source = data.archive_file.source.output_path
+  bucket = var.google_storage_bucket_name
+}
+
+# Create Event driven Cloud Function using the sample source in gcs
+resource "google_cloudfunctions_function" "pubsub_gcp_cf" {
+  name                         = var.function_name
+  runtime                      = var.function_runtime
+  source_archive_bucket        = var.google_storage_bucket_name
+  source_archive_object        = google_storage_bucket_object.src_code.name
+  entry_point                  = var.function_entry_point
+  service_account_email        = var.service_account_email
+  https_trigger_security_level = "SECURE_ALWAYS"
+  environment_variables        = var.env_vars
+  event_trigger {
+    event_type = "google.pubsub.topic.publish"
+    resource   = var.google_pubsub_topic_name
+  }
+}
+
+# Provider cloud function invoker role for the service account
+resource "google_cloudfunctions_function_iam_member" "invoker" {
+  project        = google_cloudfunctions_function.pubsub_gcp_cf.project
+  region         = google_cloudfunctions_function.pubsub_gcp_cf.region
+  cloud_function = google_cloudfunctions_function.pubsub_gcp_cf.name
+  role           = "roles/cloudfunctions.invoker"
+  member         = "serviceAccount:${var.service_account_email}"
+}
