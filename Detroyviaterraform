@@ -1,0 +1,80 @@
+# Workflow to destroy resources in a GCP host project using Terraform
+name: Destroy Expenv GCP Host Project
+
+on:
+  workflow_dispatch:
+
+jobs:
+  destroy_dev:
+    runs-on: ubuntu-latest
+    environment: dev
+    defaults:
+      run:
+        working-directory: ./terraform/
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Authenticate to Google_Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }} # Google Cloud token present in this Github repo secrets
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Display gcloud current project and account
+        run: |
+          gcloud config get-value project
+          gcloud config get-value account
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }} # Terraform Cloud token present in this Github repo secrets
+
+      - name: Terraform init
+        id: init
+        run: |
+          cp ./dev/backend.tf .
+          terraform init
+
+      - name: Terraform Destroy
+        id: destroy
+        run: terraform destroy -auto-approve
+
+  destroy_prod:
+    needs: destroy_dev
+    runs-on: ubuntu-latest
+    environment: prod
+    defaults:
+      run:
+        working-directory: ./terraform/
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Authenticate to Google_Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GOOGLE_CREDENTIALS }} # Google Cloud token present in this Github repo secrets
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }} # Terraform Cloud token present in this Github repo secrets
+
+      - name: Terraform init
+        id: init
+        run: |
+          cp ./prod/backend.tf .
+          terraform init
+
+      - name: Terraform Destroy
+        id: destroy
+        run: terraform destroy -var-file="./prod/prod.tfvars" -auto-approve
