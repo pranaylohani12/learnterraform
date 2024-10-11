@@ -1,0 +1,68 @@
+name: Terraform
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      working-directory: "./terraform/" # Set this if you have a custom directory used for tf code
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }} # TF Cloud
+
+      - name: Terraform init
+        id: init
+        run: terraform init
+
+      - name: Terraform Format
+        id: fmt
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Terraform plan
+        id: plan
+        run: terraform plan -input=false -out -no-color tfplan.plan
+        continue-on-error: true
+
+  security-checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@master
+
+      - name: tfsec check -> cli output
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/tfsec-action@v1.0.0
+        with:
+          working_directory: ./terraform/
+
+      - name: tfsec check -> PR commenter
+        if: github.event_name == 'pull_request'
+        uses: aquasecurity/tfsec-pr-commenter-action@v1.2.0
+        with:
+          working_directory: ./terraform/
+          github_token: ${{ github.token }}
+
+      - name: checkov
+        id: checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          working_directory: ./terraform/
+          quiet: true # optional: display only failed checks
+          # soft_fail: true # optional: do not return an error code if there are failed checks
+          framework: terraform # optional: run only on a specific infrastructure {cloudformation,terraform,kubernetes,all}
+          output_format: sarif # optional: the output format, one of: cli, json, junitxml, github_failed_only, or sarif. Default: sarif
+          download_external_modules: true # optional: download external terraform modules from public git repositories and terraform registry
+
+
